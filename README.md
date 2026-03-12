@@ -1,128 +1,134 @@
 # sku-vision-mvp
-Web app movil para reconocimiento de SKUs (FastAPI + CLIP + React/Vite PWA), enfocada en macOS.
+Web app móvil para reconocimiento de SKUs (FastAPI + CLIP + React/Vite PWA).
 
-## 1) Requisitos
-- macOS
+## Requisitos
 - Python 3.10+ (recomendado 3.11)
 - Node 18+
 - npm 9+
-- Opcional para HTTPS: `mkcert` (si no, usa fallback con `openssl`)
+- Opcional HTTPS local: `mkcert` (preferido) u `openssl`
 
-## 2) Setup rapido
-Desde la raiz del repo:
+## Demo incluida (fotos reales)
+El repo incluye una muestra mínima con fotos reales de 2 SKUs:
+- `042132`
+- `042128`
 
-```bash
-python3 scripts/setup_backend.py
-python3 scripts/setup_frontend.py
-```
+Ruta:
+- `sample_data/Fotos/042132/*`
+- `sample_data/Fotos/042128/*`
 
-Copia plantillas de entorno (si no existen):
+## Setup rápido (universal: macOS + Windows)
+1. Clona y entra al repo.
+2. Crea tus `.env.local`:
 
+macOS/Linux:
 ```bash
 cp backend/.env.example backend/.env.local
 cp frontend/.env.example frontend/.env.local
 ```
 
-## 3) Indexado dataset (DATASET_ROOT)
-En `backend/.env.local` configura `DATASET_ROOT` apuntando a tu carpeta `Fotos` (SKU por carpeta):
-
-```env
-DATASET_ROOT=/Users/TU_USUARIO/ruta/a/Fotos
+Windows PowerShell:
+```powershell
+Copy-Item backend/.env.example backend/.env.local
+Copy-Item frontend/.env.example frontend/.env.local
 ```
 
-Para probar rapido al clonar (sin dataset real), usa la muestra incluida de 2 SKUs:
-
+3. En `backend/.env.local`, para probar rápido deja:
 ```env
 DATASET_ROOT=./sample_data/Fotos
 ```
 
-Construye el indice:
+4. Instala dependencias e indexa:
 
+macOS/Linux:
 ```bash
+python3 scripts/setup_backend.py
+python3 scripts/setup_frontend.py
 python3 scripts/build_index.py
 ```
 
-Se generan/actualizan archivos en `backend/data/`.
+Windows PowerShell:
+```powershell
+python scripts/setup_backend.py
+python scripts/setup_frontend.py
+python scripts/build_index.py
+```
 
-## 4) Arranque HTTP (un comando)
+## Arranque HTTP
+Universal (recomendado):
+```bash
+python scripts/dev_up.py
+```
 
+macOS atajo:
 ```bash
 ./run_http.sh
 ```
 
-Este comando prepara dependencias faltantes y levanta:
+Windows PowerShell atajo:
+```powershell
+.\scripts\dev_up.ps1
+```
+
+URLs:
 - Frontend: `http://localhost:5173`
 - Backend: `http://localhost:8000`
 
-## 5) Arranque HTTPS (un comando)
+## Arranque HTTPS (Live recomendado en móvil)
+Universal:
+```bash
+python scripts/dev_up_https.py
+```
 
+macOS atajo:
 ```bash
 ./run_https.sh
 ```
 
-Este comando:
-1. Comprueba dependencias
-2. Genera certificados en `certs/` si faltan
-3. Levanta frontend y backend en HTTPS
+Windows PowerShell atajo:
+```powershell
+.\scripts\setup_https.ps1
+.\scripts\dev_up_https.ps1
+```
 
 URLs:
 - Frontend: `https://localhost:5173`
 - Backend: `https://localhost:8443`
 
-## 6) Acceso desde movil (misma Wi-Fi)
-Saca la IP local del Mac:
+## Acceso desde móvil (misma Wi‑Fi)
+Abre en el móvil:
+- HTTP: `http://IP_DEL_PC:5173`
+- HTTPS: `https://IP_DEL_PC:5173`
 
-```bash
-ipconfig getifaddr en0
+IP local:
+- macOS: `ipconfig getifaddr en0` (o `en1`)
+- Windows: `ipconfig`
+
+Para evitar bloqueos de cámara en Live con HTTPS, instala/confía `certs/rootCA.pem` en el móvil.
+
+## Scripts disponibles
+- Python (cross-platform): `setup_backend.py`, `setup_frontend.py`, `build_index.py`, `dev_up.py`, `setup_https.py`, `dev_up_https.py`, `doctor.py`
+- macOS bash wrappers: `*.sh`
+- Windows PowerShell wrappers: `*.ps1`
+
+## Troubleshooting
+- Diagnóstico:
+  - `python scripts/doctor.py`
+  - `python scripts/doctor.py --https`
+- Si un puerto está ocupado (`5173`, `8000`, `8443`), cierra procesos previos.
+- Si Live no abre cámara en iPhone, usa HTTPS y certificado confiado.
+- Si PowerShell bloquea scripts:
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
-Si no devuelve IP (por interfaz distinta), prueba:
+## Variables importantes
+Backend (`backend/.env.local`):
+- `DATASET_ROOT`
+- `DATA_DIR`
+- `STORAGE_ROOT`
+- `ALLOW_ORIGINS`
+- `ADMIN_KEY`
 
-```bash
-ipconfig getifaddr en1
-```
-
-Accede desde movil:
-- HTTP: `http://IP_DEL_MAC:5173`
-- HTTPS: `https://IP_DEL_MAC:5173`
-
-En HTTPS movil, instala/confia la CA local (`certs/rootCA.pem`) en el dispositivo para que Live funcione sin bloqueos.
-
-## 7) Troubleshooting (macOS)
-### Diagnostico rapido
-
-```bash
-python3 scripts/doctor.py
-python3 scripts/doctor.py --https
-```
-
-### Errores comunes
-- Camara Live no disponible en iPhone:
-  - Usa HTTPS (`./run_https.sh`).
-  - Abre la URL HTTPS (no HTTP).
-  - Confia `certs/rootCA.pem` en iOS.
-- Error CORS:
-  - Arranca con `./run_http.sh` o `./run_https.sh` (ajustan `ALLOW_ORIGINS` automaticamente para localhost e IP local).
-- Puertos ocupados:
-  - Cierra procesos previos en `5173`, `8000` o `8443`.
-  - Revisa logs en `.run_logs/`.
-- Firewall macOS bloquea movil:
-  - Permite conexiones entrantes para Python y Node en red privada.
-
-## Variables de entorno
-### Backend (`backend/.env.local`)
-- `DATASET_ROOT`: ruta al dataset `Fotos`
-- `DATA_DIR`: por defecto `backend/data`
-- `STORAGE_ROOT`: por defecto `backend/storage`
-- `ALLOW_ORIGINS`: CORS
-- `ADMIN_KEY`: clave del modulo Admin
-
-### Frontend (`frontend/.env.local`)
-- `VITE_BACKEND_URL`: opcional. Si no se define, la app usa automaticamente:
-  - `http://<host>:8000` en HTTP
-  - `https://<host>:8443` en HTTPS
-- `VITE_ADMIN_KEY`: clave admin usada por la UI
-
-## Notas de datos
-- No subas a Git el dataset real `Fotos` ni imagenes sensibles.
-- Para probar con tu dataset, basta con configurar `DATASET_ROOT` y ejecutar `python3 scripts/build_index.py`.
+Frontend (`frontend/.env.local`):
+- `VITE_BACKEND_URL` (opcional; si vacío se calcula automático)
+- `VITE_ADMIN_KEY`
