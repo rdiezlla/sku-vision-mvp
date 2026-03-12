@@ -2,7 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-FRONTEND_DIR="$ROOT_DIR/frontend"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  PYTHON_BIN="python"
+fi
 
-cd "$FRONTEND_DIR"
-npm run dev -- --host 0.0.0.0 --port 5173
+exec "$PYTHON_BIN" "$ROOT_DIR/scripts/run_frontend.py" "$@"

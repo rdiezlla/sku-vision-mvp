@@ -194,6 +194,7 @@ async def search_live(
 
 
 @app.get("/sku/{sku}/examples", response_model=ExamplesResponse)
+@app.get("/api/sku/{sku}/examples", response_model=ExamplesResponse)
 def sku_examples(sku: str, limit: int = 3) -> ExamplesResponse:
     examples = search_index.get_examples(sku=sku, limit=max(limit, 1))
     if not examples:
@@ -219,6 +220,7 @@ def submit_feedback(payload: FeedbackRequest) -> FeedbackResponse:
 
 
 @app.post("/admin/items", response_model=AdminItemsResponse)
+@app.post("/api/admin/items", response_model=AdminItemsResponse)
 async def add_admin_items(
     sku: str = Form(...),
     admin_key: str = Form(...),
@@ -249,6 +251,7 @@ async def add_admin_items(
 
 
 @app.get("/admin/sku_exists", response_model=SkuExistsResponse)
+@app.get("/api/admin/sku_exists", response_model=SkuExistsResponse)
 def admin_sku_exists(
     sku: str = Query(..., min_length=1),
     admin_key: str = Query(..., min_length=1),
@@ -261,6 +264,7 @@ def admin_sku_exists(
 
 
 @app.get("/admin/sku_images", response_model=AdminSkuImagesResponse)
+@app.get("/api/admin/sku_images", response_model=AdminSkuImagesResponse)
 def admin_sku_images(
     sku: str = Query(..., min_length=1),
     admin_key: str = Query(..., min_length=1),
@@ -274,6 +278,7 @@ def admin_sku_images(
 
 
 @app.post("/admin/sku_images/delete", response_model=AdminDeleteImagesResponse)
+@app.post("/api/admin/sku_images/delete", response_model=AdminDeleteImagesResponse)
 def admin_delete_sku_images(payload: AdminDeleteImagesRequest) -> AdminDeleteImagesResponse:
     if payload.admin_key != settings.admin_key:
         raise HTTPException(status_code=401, detail="Clave admin inválida")
@@ -287,6 +292,7 @@ def admin_delete_sku_images(payload: AdminDeleteImagesRequest) -> AdminDeleteIma
 
 
 @app.post("/admin/reindex", response_model=ReindexResponse)
+@app.post("/api/admin/reindex", response_model=ReindexResponse)
 def reindex(payload: ReindexRequest) -> ReindexResponse:
     if payload.admin_key != settings.admin_key:
         raise HTTPException(status_code=401, detail="Clave admin inválida")

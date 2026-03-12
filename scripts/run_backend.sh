@@ -2,11 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BACKEND_DIR="$ROOT_DIR/backend"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  PYTHON_BIN="python"
+fi
 
-HOST="${BACKEND_HOST:-0.0.0.0}"
-PORT="${BACKEND_PORT:-8000}"
-
-cd "$ROOT_DIR"
-source "$BACKEND_DIR/.venv/bin/activate"
-uvicorn backend.app:app --host "$HOST" --port "$PORT" --reload
+exec "$PYTHON_BIN" "$ROOT_DIR/scripts/run_backend.py" "$@"

@@ -14,15 +14,23 @@ BACKEND_ROOT = PROJECT_ROOT / "backend"
 
 
 def _load_env() -> None:
-    env_path = BACKEND_ROOT / ".env"
-    if env_path.exists():
-        load_dotenv(env_path)
+    for env_path in [BACKEND_ROOT / ".env", BACKEND_ROOT / ".env.local"]:
+        if env_path.exists():
+            load_dotenv(env_path, override=True)
 
 
 def _as_bool(value: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _resolve_path(value: str, default: Path) -> Path:
+    raw = (value or "").strip()
+    candidate = Path(raw).expanduser() if raw else default
+    if not candidate.is_absolute():
+        candidate = (PROJECT_ROOT / candidate).resolve()
+    return candidate.resolve()
 
 
 @dataclass(frozen=True)
@@ -51,20 +59,15 @@ class Settings:
 def get_settings() -> Settings:
     _load_env()
 
-    dataset_root = Path(
-        os.getenv(
-            "DATASET_ROOT",
-            "/Users/rubendiezllamas/Desktop/proyectos/reconocimiento_skus/Fotos",
-        )
-    ).expanduser().resolve()
+    dataset_root = _resolve_path(os.getenv("DATASET_ROOT", ""), PROJECT_ROOT / "Fotos")
+    data_dir = _resolve_path(os.getenv("DATA_DIR", ""), BACKEND_ROOT / "data")
+    storage_root = _resolve_path(os.getenv("STORAGE_ROOT", ""), BACKEND_ROOT / "storage")
+    feedback_file = _resolve_path(
+        os.getenv("FEEDBACK_FILE", ""),
+        BACKEND_ROOT / "data" / "feedback" / "feedback.jsonl",
+    )
 
-    data_dir = Path(os.getenv("DATA_DIR", str(BACKEND_ROOT / "data"))).expanduser().resolve()
-    storage_root = Path(os.getenv("STORAGE_ROOT", str(BACKEND_ROOT / "storage"))).expanduser().resolve()
-    feedback_file = Path(
-        os.getenv("FEEDBACK_FILE", str(BACKEND_ROOT / "data" / "feedback" / "feedback.jsonl"))
-    ).expanduser().resolve()
-
-    allow_origins_raw = os.getenv("ALLOW_ORIGINS", "*")
+    allow_origins_raw = os.getenv("ALLOW_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
     allow_origins = [v.strip() for v in allow_origins_raw.split(",") if v.strip()]
 
     settings = Settings(

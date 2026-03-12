@@ -3,6 +3,28 @@
  * @typedef {{ query_id: string, results: SearchResult[], index_engine?: string }} SearchResponsePayload
  */
 
+export function resolveBackendUrl() {
+  const envValue = String(import.meta.env.VITE_BACKEND_URL ?? import.meta.env.BACKEND_URL ?? '').trim()
+  if (!envValue) {
+    if (typeof window === 'undefined') return 'http://localhost:8000'
+    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:'
+    const host = window.location.hostname || 'localhost'
+    const port = protocol === 'https:' ? '8443' : '8000'
+    return `${protocol}//${host}:${port}`
+  }
+  if (envValue === '/') {
+    return ''
+  }
+  return envValue.replace(/\/$/, '')
+}
+
+export function toAbsoluteBackendUrl(path, backendUrl = resolveBackendUrl()) {
+  if (!path) return ''
+  if (path.startsWith('http://') || path.startsWith('https://')) return path
+  if (!backendUrl || backendUrl === '/api') return path
+  return `${backendUrl}${path.startsWith('/') ? path : `/${path}`}`
+}
+
 export async function parseApiError(response, fallbackMessage = 'Error de API') {
   const contentType = response.headers.get('content-type') || ''
   if (contentType.includes('application/json')) {

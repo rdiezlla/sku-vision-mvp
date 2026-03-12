@@ -6,18 +6,16 @@ import {
   fetchAdminSkuImages,
   parseApiError,
   postFeedback,
+  resolveBackendUrl,
   searchImage,
+  toAbsoluteBackendUrl,
 } from './api'
 
-const DEFAULT_BACKEND_URL = `${window.location.protocol}//${window.location.hostname}:8000`
-const ENV_BACKEND_URL = String(import.meta.env.VITE_BACKEND_URL ?? '').trim()
-const BACKEND_URL = (ENV_BACKEND_URL.length > 0 ? ENV_BACKEND_URL : DEFAULT_BACKEND_URL).replace(/\/$/, '')
+const BACKEND_URL = resolveBackendUrl()
 const DEFAULT_ADMIN_KEY = import.meta.env.VITE_ADMIN_KEY ?? ''
 
 function absoluteUrl(path) {
-  if (!path) return ''
-  if (path.startsWith('http://') || path.startsWith('https://')) return path
-  return `${BACKEND_URL}${path}`
+  return toAbsoluteBackendUrl(path, BACKEND_URL)
 }
 
 function App() {

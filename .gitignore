@@ -1,11 +1,51 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
 backend/.venv/
-backend/data/*.npy
-backend/data/*.faiss
-backend/data/mapping.json
-backend/data/logs/
-backend/data/feedback/*.jsonl
+
+# Node
+node_modules/
 frontend/node_modules/
 frontend/dist/
-certs/*.pem
+
+# Logs / caches
+.run_logs/
+*.log
+
+# Local env files (machine-specific)
 .env
-.DS_Store
+.env.local
+backend/.env
+backend/.env.local
+frontend/.env
+frontend/.env.local
+
+# Real dataset local en raiz (fuera de git)
+/Fotos/
+
+# Model/index/data artifacts
+backend/data/
+backend/storage/
+backend/data/feedback/
+backend/data/logs/
+!backend/data/.gitkeep
+!backend/storage/.gitkeep
+
+# Local certificates (private and generated)
+certs/*
+!certs/.gitkeep

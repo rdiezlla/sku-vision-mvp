@@ -2,16 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BACKEND_DIR="$ROOT_DIR/backend"
-
-cd "$BACKEND_DIR"
-python3 -m venv .venv
-source .venv/bin/activate
-
-if python -c "import fastapi, torch, transformers" >/dev/null 2>&1; then
-  echo "Dependencias backend ya instaladas. Saltando pip install."
-else
-  pip install -r requirements.txt
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  PYTHON_BIN="python"
 fi
 
-echo "Backend listo en: $BACKEND_DIR"
+exec "$PYTHON_BIN" "$ROOT_DIR/scripts/setup_backend.py" "$@"
