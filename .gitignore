@@ -26,6 +26,7 @@ frontend/dist/
 # Logs / caches
 .run_logs/
 *.log
+sku-vision-mvp.zip
 
 # Local env files (machine-specific)
 .env
@@ -34,6 +35,7 @@ backend/.env
 backend/.env.local
 frontend/.env
 frontend/.env.local
+.env.docker
 
 # Real dataset local en raiz (fuera de git)
 /Fotos/
@@ -49,3 +51,9 @@ backend/data/logs/
 # Local certificates (private and generated)
 certs/*
 !certs/.gitkeep
+
+# Runtime persistence folders for Docker (keep structure only)
+runtime_data/data/*
+runtime_data/storage/*
+!runtime_data/data/.gitkeep
+!runtime_data/storage/.gitkeep

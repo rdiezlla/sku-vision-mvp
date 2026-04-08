@@ -1,0 +1,116 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_BACKEND_URL: ""
+    image: sku-vision-mvp:local
+    environment:
+      DATASET_ROOT: /datasets/Fotos
+      DATA_DIR: /app/backend/data
+      STORAGE_ROOT: /app/backend/storage
+      FEEDBACK_FILE: /app/backend/data/feedback/feedback.jsonl
+      BACKEND_HOST: 0.0.0.0
+      BACKEND_PORT: 8000
+      ALLOW_ORIGINS: "*"
+      ADMIN_KEY: ${ADMIN_KEY:-sku-admin-dev}
+    volumes:
+      - type: bind
+        source: ${HOST_DATASET_ROOT:-./sample_data/Fotos}
+        target: /datasets/Fotos
+        read_only: true
+      - type: bind
+        source: ./runtime_data/data
+        target: /app/backend/data
+      - type: bind
+        source: ./runtime_data/storage
+        target: /app/backend/storage
+    ports:
+      - "0.0.0.0:${HTTP_PORT:-8000}:8000"
+    command: ["python", "scripts/run_backend_single.py", "--host", "0.0.0.0", "--port", "8000", "--auto-build-index"]
+
+  app_https:
+    profiles: ["https"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_BACKEND_URL: ""
+    image: sku-vision-mvp:local
+    environment:
+      DATASET_ROOT: /datasets/Fotos
+      DATA_DIR: /app/backend/data
+      STORAGE_ROOT: /app/backend/storage
+      FEEDBACK_FILE: /app/backend/data/feedback/feedback.jsonl
+      BACKEND_HOST: 0.0.0.0
+      BACKEND_PORT: 8443
+      ALLOW_ORIGINS: "*"
+      ADMIN_KEY: ${ADMIN_KEY:-sku-admin-dev}
+    volumes:
+      - type: bind
+        source: ${HOST_DATASET_ROOT:-./sample_data/Fotos}
+        target: /datasets/Fotos
+        read_only: true
+      - type: bind
+        source: ./runtime_data/data
+        target: /app/backend/data
+      - type: bind
+        source: ./runtime_data/storage
+        target: /app/backend/storage
+      - type: bind
+        source: ./certs
+        target: /app/certs
+        read_only: true
+    ports:
+      - "0.0.0.0:${HTTPS_PORT:-8443}:8443"
+    command:
+      [
+        "python",
+        "scripts/run_backend_single.py",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8443",
+        "--https",
+        "--cert-file",
+        "/app/certs/dev-cert.pem",
+        "--key-file",
+        "/app/certs/dev-key.pem",
+        "--auto-build-index"
+      ]
+
+  indexer:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_BACKEND_URL: ""
+    image: sku-vision-mvp:local
+    environment:
+      DATASET_ROOT: /datasets/Fotos
+      DATA_DIR: /app/backend/data
+      STORAGE_ROOT: /app/backend/storage
+    volumes:
+      - type: bind
+        source: ${HOST_DATASET_ROOT:-./sample_data/Fotos}
+        target: /datasets/Fotos
+        read_only: true
+      - type: bind
+        source: ./runtime_data/data
+        target: /app/backend/data
+      - type: bind
+        source: ./runtime_data/storage
+        target: /app/backend/storage
+    command:
+      [
+        "python",
+        "-m",
+        "backend.index.build",
+        "--data_dir",
+        "/datasets/Fotos",
+        "--out_dir",
+        "/app/backend/data",
+        "--skip_storage"
+      ]

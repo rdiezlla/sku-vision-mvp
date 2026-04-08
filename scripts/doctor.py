@@ -89,6 +89,9 @@ def main() -> int:
     _print_result(frontend_deps_ok, "frontend/node_modules", str(FRONTEND_DIR / "node_modules"))
     has_warnings = has_warnings or not (node_ok and npm_ok and frontend_deps_ok)
 
+    static_dist_ok = (REPO_ROOT / "backend" / "static_dist" / "index.html").exists()
+    _print_result(static_dist_ok, "backend/static_dist", "single-server sin Node en runtime")
+
     dataset_root = Path(str(env.get("DATASET_ROOT", "")).strip() or (REPO_ROOT / "Fotos")).expanduser()
     dataset_ok = dataset_root.exists()
     _print_result(dataset_ok, "DATASET_ROOT", str(dataset_root))
@@ -104,6 +107,8 @@ def main() -> int:
 
     cert_file = CERTS_DIR / "dev-cert.pem"
     key_file = CERTS_DIR / "dev-key.pem"
+    docker_ok = command_exists("docker")
+    _print_result(docker_ok, "Docker", "opcional para despliegue corporativo")
     if args.https:
         certs_ok = cert_file.exists() and key_file.exists()
         _print_result(certs_ok, "Certificados HTTPS", f"cert={cert_file} key={key_file}")

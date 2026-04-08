@@ -4,10 +4,12 @@ import json
 import logging
 from datetime import datetime, timezone
 from io import BytesIO
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 
@@ -44,6 +46,7 @@ search_index = SkuSearchIndex(
 )
 
 app = FastAPI(title="SKU Vision MVP", version="0.2.0")
+static_dist_dir = settings.project_root / "backend" / "static_dist"
 
 if "*" in settings.allow_origins:
     app.add_middleware(
@@ -66,6 +69,8 @@ if settings.dataset_root.exists():
     app.mount("/reference-images", StaticFiles(directory=str(settings.dataset_root)), name="reference-images")
 if settings.storage_root.exists():
     app.mount("/storage-images", StaticFiles(directory=str(settings.storage_root)), name="storage-images")
+if (static_dist_dir / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(static_dist_dir / "assets")), name="spa-assets")
 
 
 @app.on_event("startup")
@@ -306,3 +311,59 @@ def reindex(payload: ReindexRequest) -> ReindexResponse:
         skipped_images=stats["skipped_images"],
         index_engine=stats["index_engine"],
     )
+
+
+def _try_static_file(full_path: str) -> Optional[Path]:
+    if not static_dist_dir.exists():
+        return None
+
+    requested = full_path.lstrip("/")
+    if not requested:
+        candidate = static_dist_dir / "index.html"
+    else:
+        candidate = (static_dist_dir / requested).resolve()
+        try:
+            candidate.relative_to(static_dist_dir.resolve())
+        except ValueError:
+            return None
+
+    if candidate.exists() and candidate.is_file():
+        return candidate
+    return None
+
+
+@app.get("/", include_in_schema=False)
+def spa_index() -> FileResponse:
+    index_file = _try_static_file("index.html")
+    if index_file is None:
+        raise HTTPException(status_code=404, detail="Frontend estático no disponible")
+    return FileResponse(index_file)
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+def spa_fallback(full_path: str) -> FileResponse:
+    blocked_prefixes = (
+        "api/",
+        "search",
+        "feedback",
+        "admin/",
+        "sku/",
+        "index/",
+        "health",
+        "reference-images/",
+        "storage-images/",
+        "docs",
+        "redoc",
+        "openapi.json",
+    )
+    if full_path.startswith(blocked_prefixes):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    target = _try_static_file(full_path)
+    if target is not None:
+        return FileResponse(target)
+
+    index_file = _try_static_file("index.html")
+    if index_file is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(index_file)
