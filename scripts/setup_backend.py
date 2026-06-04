@@ -12,6 +12,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Setup backend virtualenv and dependencies")
     parser.add_argument("--python", default=python_cmd(), help="Python executable to create venv")
     parser.add_argument("--upgrade-pip", action="store_true", help="Upgrade pip/setuptools/wheel")
+    parser.add_argument("--skip-torch-cpu", action="store_true", help="Skip CPU-only PyTorch preinstall")
     args = parser.parse_args()
 
     venv_dir = BACKEND_DIR / ".venv"
@@ -30,6 +31,21 @@ def main() -> int:
 
     if args.upgrade_pip:
         run_checked([str(py), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"], cwd=BACKEND_DIR)
+
+    if not args.skip_torch_cpu:
+        print("Instalando PyTorch CPU-only...")
+        run_checked(
+            [
+                str(py),
+                "-m",
+                "pip",
+                "install",
+                "--index-url",
+                "https://download.pytorch.org/whl/cpu",
+                "torch>=2.2",
+            ],
+            cwd=BACKEND_DIR,
+        )
 
     print("Instalando dependencias backend...")
     run_checked([str(py), "-m", "pip", "install", "-r", str(requirements)], cwd=BACKEND_DIR)

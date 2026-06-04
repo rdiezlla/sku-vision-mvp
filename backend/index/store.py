@@ -94,6 +94,53 @@ class SkuSearchIndex:
 
         self.logger = logging.getLogger("sku_vision.index")
 
+    def _make_mapping_row(self, image_id: int, sku: str, path: Path) -> Dict[str, Any]:
+        full_path = path.resolve()
+        row: Dict[str, Any] = {"id": image_id, "sku": sku}
+
+        try:
+            row["root"] = "dataset"
+            row["relative_path"] = full_path.relative_to(self.dataset_root.resolve()).as_posix()
+            return row
+        except ValueError:
+            pass
+
+        try:
+            row["root"] = "storage"
+            row["relative_path"] = full_path.relative_to(self.storage_root.resolve()).as_posix()
+            return row
+        except ValueError:
+            pass
+
+        row["filepath"] = str(full_path)
+        return row
+
+    def _resolve_mapping_filepath(self, row: Dict[str, Any]) -> Path:
+        root_kind = str(row.get("root", "")).strip().lower()
+        relative_path = str(row.get("relative_path", "")).strip()
+
+        if root_kind == "dataset" and relative_path:
+            return (self.dataset_root / Path(relative_path)).resolve()
+        if root_kind == "storage" and relative_path:
+            return (self.storage_root / Path(relative_path)).resolve()
+
+        raw_path = str(row.get("filepath", "")).strip()
+        if raw_path:
+            return Path(raw_path).resolve()
+
+        raise RuntimeError(f"Fila de mapping sin ruta válida: {row!r}")
+
+    def _mapping_row_to_public_url(self, row: Dict[str, Any]) -> str:
+        root_kind = str(row.get("root", "")).strip().lower()
+        relative_path = str(row.get("relative_path", "")).strip().replace("\\", "/")
+
+        if root_kind == "dataset" and relative_path:
+            return "/reference-images/" + relative_path
+        if root_kind == "storage" and relative_path:
+            return "/storage-images/" + relative_path
+
+        return self._path_to_public_url(str(self._resolve_mapping_filepath(row)))
+
     @property
     def embedder(self) -> ClipEmbedder:
         if self._embedder is None:
@@ -279,13 +326,7 @@ class SkuSearchIndex:
 
             mapping_images: List[Dict[str, Any]] = []
             for idx, record in enumerate(records):
-                mapping_images.append(
-                    {
-                        "id": idx,
-                        "sku": record["sku"],
-                        "filepath": record["filepath"],
-                    }
-                )
+                mapping_images.append(self._make_mapping_row(idx, record["sku"], Path(record["filepath"])))
 
             sku_to_ids, sku_order, prototypes = self._build_sku_structures(records, embeddings)
 
@@ -506,7 +547,7 @@ class SkuSearchIndex:
 
                 top_local = np.argsort(-per_image_scores)[:max_examples]
                 example_urls = [
-                    self._path_to_public_url(self.mapping_images[image_ids[idx]]["filepath"])
+                    self._mapping_row_to_public_url(self.mapping_images[image_ids[idx]])
                     for idx in top_local.tolist()
                 ]
 
@@ -563,8 +604,7 @@ class SkuSearchIndex:
             urls: List[str] = []
             for image_id in image_ids:
                 if image_id < len(self.mapping_images):
-                    filepath = self.mapping_images[image_id]["filepath"]
-                    urls.append(self._path_to_public_url(filepath))
+                    urls.append(self._mapping_row_to_public_url(self.mapping_images[image_id]))
             return urls
 
     def list_sku_images(self, sku: str, storage_only: bool = True) -> List[Dict[str, Any]]:
@@ -580,10 +620,10 @@ class SkuSearchIndex:
                     continue
 
                 raw_path = str(row.get("filepath", "")).strip()
-                if not raw_path:
+                if not raw_path and not row.get("relative_path"):
                     continue
 
-                full_path = Path(raw_path).resolve()
+                full_path = self._resolve_mapping_filepath(row)
                 if storage_only and not self._is_within_root(full_path, self.storage_root):
                     continue
 
@@ -593,7 +633,7 @@ class SkuSearchIndex:
                         "sku": clean_sku,
                         "filepath": str(full_path),
                         "filename": full_path.name,
-                        "url": self._path_to_public_url(str(full_path)),
+                        "url": self._mapping_row_to_public_url(row),
                     }
                 )
 
@@ -675,13 +715,7 @@ class SkuSearchIndex:
             for offset, path in enumerate(valid_paths):
                 image_id = start_id + offset
                 new_ids.append(image_id)
-                self.mapping_images.append(
-                    {
-                        "id": image_id,
-                        "sku": clean_sku,
-                        "filepath": str(path.resolve()),
-                    }
-                )
+                self.mapping_images.append(self._make_mapping_row(image_id, clean_sku, path))
 
             if self.image_embeddings.size == 0:
                 self.image_embeddings = new_embeddings.astype(np.float32)
@@ -737,7 +771,7 @@ class SkuSearchIndex:
             for idx, row in enumerate(self.mapping_images):
                 if row.get("sku") != clean_sku:
                     continue
-                full_path = Path(str(row.get("filepath", ""))).resolve()
+                full_path = self._resolve_mapping_filepath(row)
                 if str(full_path) in target_paths:
                     remove_indices.append(idx)
                     remove_paths.append(full_path)
@@ -777,9 +811,9 @@ class SkuSearchIndex:
                 mapping_images: List[Dict[str, Any]] = []
                 for new_id, row in enumerate(kept_records):
                     row_sku = str(row.get("sku", "")).strip()
-                    row_filepath = str(Path(str(row.get("filepath", ""))).resolve())
-                    mapping_images.append({"id": new_id, "sku": row_sku, "filepath": row_filepath})
-                    normalized_records.append({"sku": row_sku, "filepath": row_filepath})
+                    row_filepath = self._resolve_mapping_filepath(row)
+                    mapping_images.append(self._make_mapping_row(new_id, row_sku, row_filepath))
+                    normalized_records.append({"sku": row_sku, "filepath": str(row_filepath)})
 
                 sku_to_ids, sku_order, prototypes = self._build_sku_structures(normalized_records, kept_embeddings)
 

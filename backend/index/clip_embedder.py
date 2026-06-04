@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+from typing import Any, List
 
 import numpy as np
 import torch
@@ -31,6 +31,29 @@ class ClipEmbedder:
             return "cuda"
         return "cpu"
 
+    @staticmethod
+    def _extract_image_vectors(output: Any) -> torch.Tensor:
+        if isinstance(output, torch.Tensor):
+            return output
+
+        for attr in ("image_embeds", "pooler_output"):
+            value = getattr(output, attr, None)
+            if isinstance(value, torch.Tensor):
+                return value
+
+        if isinstance(output, dict):
+            for key in ("image_embeds", "pooler_output"):
+                value = output.get(key)
+                if isinstance(value, torch.Tensor):
+                    return value
+
+        if isinstance(output, (tuple, list)):
+            for item in output:
+                if isinstance(item, torch.Tensor):
+                    return item
+
+        raise TypeError(f"Salida de embedding no compatible: {type(output)!r}")
+
     @torch.inference_mode()
     def embed_images(self, images: List[Image.Image]) -> np.ndarray:
         if not images:
@@ -38,7 +61,10 @@ class ClipEmbedder:
 
         inputs = self.processor(images=images, return_tensors="pt")
         pixel_values = inputs["pixel_values"].to(self.device)
-        vectors = self.model.get_image_features(pixel_values=pixel_values)
+        raw_output = self.model.get_image_features(pixel_values=pixel_values)
+        # Algunas versiones recientes/dev de transformers devuelven un ModelOutput
+        # en lugar del tensor final directamente.
+        vectors = self._extract_image_vectors(raw_output)
         vectors = vectors.detach().cpu().numpy().astype(np.float32)
         return l2_normalize(vectors)
 

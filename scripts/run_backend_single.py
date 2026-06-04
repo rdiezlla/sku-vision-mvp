@@ -8,16 +8,25 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-INDEX_FILES = [
-    REPO_ROOT / "backend" / "data" / "sku_prototypes.npy",
-    REPO_ROOT / "backend" / "data" / "image_embeddings.npy",
-    REPO_ROOT / "backend" / "data" / "mapping.json",
-]
 STATIC_INDEX_FILE = REPO_ROOT / "backend" / "static_dist" / "index.html"
 
 
+def resolve_path(value: str, default: Path) -> Path:
+    raw = (value or "").strip()
+    candidate = Path(raw).expanduser() if raw else default
+    if not candidate.is_absolute():
+        candidate = (REPO_ROOT / candidate).resolve()
+    return candidate.resolve()
+
+
 def index_exists() -> bool:
-    return all(path.exists() for path in INDEX_FILES)
+    data_dir = resolve_path(os.getenv("DATA_DIR", ""), REPO_ROOT / "backend" / "data")
+    required = [
+        data_dir / "sku_prototypes.npy",
+        data_dir / "image_embeddings.npy",
+        data_dir / "mapping.json",
+    ]
+    return all(path.exists() for path in required)
 
 
 def main() -> int:
