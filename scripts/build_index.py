@@ -13,12 +13,16 @@ def main() -> int:
 
     default_dataset = env.get("DATASET_ROOT", str((Path(__file__).resolve().parents[1] / "Fotos")))
     default_out_dir = env.get("DATA_DIR", "backend/data")
+    default_backend = env.get("EMBEDDING_BACKEND", "clip")
+    default_model = env.get("EMBEDDING_MODEL_ID", env.get("CLIP_MODEL_ID", "openai/clip-vit-base-patch32"))
 
     parser = argparse.ArgumentParser(description="Build SKU index")
     parser.add_argument("--data-dir", default=default_dataset, help="Dataset root with SKU folders")
     parser.add_argument("--out-dir", default=default_out_dir, help="Output directory for index files")
     parser.add_argument("--skip-storage", action="store_true", help="Exclude backend/storage during build")
     parser.add_argument("--include-storage", action="store_true", help="Include backend/storage during build")
+    parser.add_argument("--embedding-backend", default=default_backend, choices=["clip", "dino", "dinov2"])
+    parser.add_argument("--model-id", default=default_model)
     args = parser.parse_args()
 
     py = venv_python()
@@ -39,6 +43,10 @@ def main() -> int:
         str(data_dir),
         "--out_dir",
         out_dir_arg,
+        "--embedding_backend",
+        args.embedding_backend,
+        "--model_id",
+        args.model_id,
     ]
 
     use_skip_storage = True

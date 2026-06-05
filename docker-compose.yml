@@ -11,6 +11,9 @@ services:
       DATA_DIR: /app/backend/data
       STORAGE_ROOT: /app/backend/storage
       FEEDBACK_FILE: /app/backend/data/feedback/feedback.jsonl
+      BATCH_SIZE: ${BATCH_SIZE:-8}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-clip}
+      EMBEDDING_MODEL_ID: ${EMBEDDING_MODEL_ID:-openai/clip-vit-base-patch32}
       BACKEND_HOST: 0.0.0.0
       BACKEND_PORT: 8000
       ALLOW_ORIGINS: "*"
@@ -43,6 +46,9 @@ services:
       DATA_DIR: /app/backend/data
       STORAGE_ROOT: /app/backend/storage
       FEEDBACK_FILE: /app/backend/data/feedback/feedback.jsonl
+      BATCH_SIZE: ${BATCH_SIZE:-8}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-clip}
+      EMBEDDING_MODEL_ID: ${EMBEDDING_MODEL_ID:-openai/clip-vit-base-patch32}
       BACKEND_HOST: 0.0.0.0
       BACKEND_PORT: 8443
       ALLOW_ORIGINS: "*"
@@ -92,6 +98,9 @@ services:
       DATASET_ROOT: /datasets/Fotos
       DATA_DIR: /app/backend/data
       STORAGE_ROOT: /app/backend/storage
+      BATCH_SIZE: ${BATCH_SIZE:-8}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-clip}
+      EMBEDDING_MODEL_ID: ${EMBEDDING_MODEL_ID:-openai/clip-vit-base-patch32}
     volumes:
       - type: bind
         source: ${HOST_DATASET_ROOT:-./sample_data/Fotos}
@@ -112,5 +121,11 @@ services:
         "/datasets/Fotos",
         "--out_dir",
         "/app/backend/data",
+        "--embedding_backend",
+        "${EMBEDDING_BACKEND:-clip}",
+        "--model_id",
+        "${EMBEDDING_MODEL_ID:-openai/clip-vit-base-patch32}",
+        "--batch_size",
+        "${BATCH_SIZE:-8}",
         "--skip_storage"
       ]

@@ -13,6 +13,7 @@ import numpy as np
 from PIL import Image
 
 from backend.index.clip_embedder import ClipEmbedder
+from backend.index.dino_embedder import DinoEmbedder
 
 try:
     import faiss  # type: ignore
@@ -64,6 +65,7 @@ class SkuSearchIndex:
         storage_root: Path,
         model_id: str,
         batch_size: int,
+        embedding_backend: str = "clip",
         prototype_method: str = "mean",
         include_storage_on_build: bool = True,
     ) -> None:
@@ -72,10 +74,11 @@ class SkuSearchIndex:
         self.paths = IndexPaths(root=data_dir)
         self.model_id = model_id
         self.batch_size = batch_size
+        self.embedding_backend = embedding_backend.strip().lower() or "clip"
         self.prototype_method = prototype_method
         self.include_storage_on_build = include_storage_on_build
 
-        self._embedder: Optional[ClipEmbedder] = None
+        self._embedder: Optional[ClipEmbedder | DinoEmbedder] = None
         self._sku_faiss = None
         self._image_faiss = None
         self._loaded = False
@@ -94,9 +97,9 @@ class SkuSearchIndex:
 
         self.logger = logging.getLogger("sku_vision.index")
 
-    def _make_mapping_row(self, image_id: int, sku: str, path: Path) -> Dict[str, Any]:
+    def _make_mapping_row(self, image_id: int, sku: str, path: Path, view_id: str = "full") -> Dict[str, Any]:
         full_path = path.resolve()
-        row: Dict[str, Any] = {"id": image_id, "sku": sku}
+        row: Dict[str, Any] = {"id": image_id, "sku": sku, "view_id": view_id}
 
         try:
             row["root"] = "dataset"
@@ -114,6 +117,22 @@ class SkuSearchIndex:
 
         row["filepath"] = str(full_path)
         return row
+
+    @staticmethod
+    def _source_key(row: Dict[str, Any]) -> str:
+        root_kind = str(row.get("root", "")).strip().lower()
+        relative_path = str(row.get("relative_path", "")).strip().replace("\\", "/")
+        if root_kind and relative_path:
+            return f"{root_kind}:{relative_path}"
+        return str(row.get("filepath", "")).strip()
+
+    def _source_image_count(self, rows: Optional[Sequence[Dict[str, Any]]] = None) -> int:
+        source_rows = self.mapping_images if rows is None else rows
+        keys = {self._source_key(row) for row in source_rows if self._source_key(row)}
+        return len(keys)
+
+    def _source_image_count_for_sku(self, sku: str) -> int:
+        return self._source_image_count([row for row in self.mapping_images if row.get("sku") == sku])
 
     def _resolve_mapping_filepath(self, row: Dict[str, Any]) -> Path:
         root_kind = str(row.get("root", "")).strip().lower()
@@ -142,9 +161,14 @@ class SkuSearchIndex:
         return self._path_to_public_url(str(self._resolve_mapping_filepath(row)))
 
     @property
-    def embedder(self) -> ClipEmbedder:
+    def embedder(self) -> ClipEmbedder | DinoEmbedder:
         if self._embedder is None:
-            self._embedder = ClipEmbedder(model_id=self.model_id)
+            if self.embedding_backend in {"dino", "dinov2"}:
+                self._embedder = DinoEmbedder(model_id=self.model_id)
+            elif self.embedding_backend == "clip":
+                self._embedder = ClipEmbedder(model_id=self.model_id)
+            else:
+                raise RuntimeError(f"Motor de embeddings no soportado: {self.embedding_backend}")
         return self._embedder
 
     @staticmethod
@@ -176,6 +200,54 @@ class SkuSearchIndex:
             hist = hist / norm
         return hist
 
+    @staticmethod
+    def _crop_if_valid(image: Image.Image, box: Tuple[int, int, int, int]) -> Optional[Image.Image]:
+        left, top, right, bottom = box
+        if right - left < 32 or bottom - top < 32:
+            return None
+        return image.crop(box)
+
+    @classmethod
+    def _make_image_views(cls, image: Image.Image) -> List[Tuple[str, Image.Image]]:
+        base = image.convert("RGB")
+        width, height = base.size
+        view_specs = [
+            ("full", (0, 0, width, height)),
+            ("center", (int(width * 0.08), int(height * 0.08), int(width * 0.92), int(height * 0.95))),
+            ("label", (int(width * 0.1), int(height * 0.22), int(width * 0.9), int(height * 0.98))),
+        ]
+
+        if width > height * 1.25:
+            view_specs.extend(
+                [
+                    ("pack_left", (0, int(height * 0.16), int(width * 0.38), int(height * 0.98))),
+                    ("pack_mid_left", (int(width * 0.2), int(height * 0.16), int(width * 0.58), int(height * 0.98))),
+                    ("pack_mid_right", (int(width * 0.42), int(height * 0.16), int(width * 0.8), int(height * 0.98))),
+                    ("pack_right", (int(width * 0.62), int(height * 0.16), width, int(height * 0.98))),
+                ]
+            )
+        else:
+            view_specs.extend(
+                [
+                    ("product", (int(width * 0.18), int(height * 0.1), int(width * 0.82), int(height * 0.98))),
+                    ("product_label", (int(width * 0.12), int(height * 0.25), int(width * 0.88), int(height * 0.95))),
+                ]
+            )
+
+        views: List[Tuple[str, Image.Image]] = []
+        seen_sizes: set[Tuple[str, Tuple[int, int]]] = set()
+        for view_id, box in view_specs:
+            crop = cls._crop_if_valid(base, box)
+            if crop is None:
+                continue
+            key = (view_id, crop.size)
+            if key in seen_sizes:
+                continue
+            seen_sizes.add(key)
+            views.append((view_id, crop))
+
+        return views or [("full", base)]
+
     def _iter_images_from_root(self, root: Path) -> List[Tuple[str, Path]]:
         entries: List[Tuple[str, Path]] = []
         if not root.exists():
@@ -197,7 +269,7 @@ class SkuSearchIndex:
             entries.extend(self._iter_images_from_root(self.storage_root))
         return entries
 
-    def _embed_entries(self, entries: Sequence[Tuple[str, Path]]) -> Tuple[List[Dict[str, str]], np.ndarray, np.ndarray, int]:
+    def _embed_entries_legacy(self, entries: Sequence[Tuple[str, Path]]) -> Tuple[List[Dict[str, str]], np.ndarray, np.ndarray, int]:
         valid_records: List[Dict[str, str]] = []
         embedding_chunks: List[np.ndarray] = []
         hist_chunks: List[np.ndarray] = []
@@ -213,9 +285,10 @@ class SkuSearchIndex:
                 try:
                     with Image.open(path) as img:
                         rgb = img.convert("RGB")
-                    images.append(rgb)
-                    batch_hists.append(self._compute_color_hist(rgb))
-                    batch_records.append({"sku": sku, "filepath": str(path)})
+                    for view_id, view in self._make_image_views(rgb):
+                        images.append(view)
+                        batch_hists.append(self._compute_color_hist(view))
+                        batch_records.append({"sku": sku, "filepath": str(path), "view_id": view_id})
                 except Exception as exc:  # pragma: no cover - image corruption dependent
                     skipped += 1
                     self.logger.warning("Imagen corrupta o inválida: %s (%s)", path, exc)
@@ -230,6 +303,59 @@ class SkuSearchIndex:
             embedding_chunks.append(embeddings)
             hist_chunks.append(np.vstack(batch_hists).astype(np.float32))
             valid_records.extend(batch_records)
+
+        if not valid_records:
+            return [], np.empty((0, 0), dtype=np.float32), np.empty((0, 0), dtype=np.float32), skipped
+
+        return (
+            valid_records,
+            np.vstack(embedding_chunks).astype(np.float32),
+            np.vstack(hist_chunks).astype(np.float32),
+            skipped,
+        )
+
+    def _embed_entries(self, entries: Sequence[Tuple[str, Path]]) -> Tuple[List[Dict[str, str]], np.ndarray, np.ndarray, int]:
+        valid_records: List[Dict[str, str]] = []
+        embedding_chunks: List[np.ndarray] = []
+        hist_chunks: List[np.ndarray] = []
+        skipped = 0
+        images: List[Image.Image] = []
+        batch_records: List[Dict[str, str]] = []
+        batch_hists: List[np.ndarray] = []
+
+        def flush_batch() -> None:
+            if not images:
+                return
+
+            embeddings = self.embedder.embed_images(images)
+            if len(embeddings) != len(batch_records):
+                raise RuntimeError("Numero de embeddings no coincide con el batch procesado")
+
+            embedding_chunks.append(embeddings)
+            hist_chunks.append(np.vstack(batch_hists).astype(np.float32))
+            valid_records.extend(batch_records)
+            images.clear()
+            batch_records.clear()
+            batch_hists.clear()
+
+        for idx, (sku, path) in enumerate(entries, 1):
+            try:
+                with Image.open(path) as img:
+                    rgb = img.convert("RGB")
+                for view_id, view in self._make_image_views(rgb):
+                    images.append(view)
+                    batch_hists.append(self._compute_color_hist(view))
+                    batch_records.append({"sku": sku, "filepath": str(path), "view_id": view_id})
+                    if len(images) >= self.batch_size:
+                        flush_batch()
+            except Exception as exc:  # pragma: no cover - image corruption dependent
+                skipped += 1
+                self.logger.warning("Imagen corrupta o invalida: %s (%s)", path, exc)
+
+            if idx % 500 == 0:
+                self.logger.info("Indexando: %s/%s imagenes origen procesadas", idx, len(entries))
+
+        flush_batch()
 
         if not valid_records:
             return [], np.empty((0, 0), dtype=np.float32), np.empty((0, 0), dtype=np.float32), skipped
@@ -266,10 +392,12 @@ class SkuSearchIndex:
     def _mapping_payload(self) -> Dict[str, Any]:
         return {
             "model_id": self.model_id,
+            "embedding_backend": self.embedding_backend,
             "prototype_method": self.prototype_method,
             "embedding_dim": int(self.image_embeddings.shape[1]) if self.image_embeddings.size else 0,
             "sku_count": len(self.sku_order),
-            "image_count": len(self.mapping_images),
+            "image_count": self._source_image_count(),
+            "embedding_count": len(self.mapping_images),
             "sku_order": self.sku_order,
             "sku_to_image_ids": self.sku_to_image_ids,
             "images": self.mapping_images,
@@ -326,7 +454,14 @@ class SkuSearchIndex:
 
             mapping_images: List[Dict[str, Any]] = []
             for idx, record in enumerate(records):
-                mapping_images.append(self._make_mapping_row(idx, record["sku"], Path(record["filepath"])))
+                mapping_images.append(
+                    self._make_mapping_row(
+                        idx,
+                        record["sku"],
+                        Path(record["filepath"]),
+                        view_id=str(record.get("view_id", "full")),
+                    )
+                )
 
             sku_to_ids, sku_order, prototypes = self._build_sku_structures(records, embeddings)
 
@@ -344,11 +479,14 @@ class SkuSearchIndex:
             elapsed = time.perf_counter() - start_time
             stats = {
                 "sku_count": len(self.sku_order),
-                "image_count": len(self.mapping_images),
+                "image_count": self._source_image_count(),
+                "embedding_count": len(self.mapping_images),
                 "skipped_images": skipped,
                 "seconds": round(elapsed, 2),
                 "device": self.embedder.device,
                 "index_engine": self.index_engine,
+                "embedding_backend": self.embedding_backend,
+                "model_id": self.model_id,
                 "out_dir": str(self.paths.root),
             }
             self.logger.info("Build completado: %s", stats)
@@ -369,6 +507,21 @@ class SkuSearchIndex:
 
             with self.paths.mapping.open("r", encoding="utf-8") as f:
                 mapping = json.load(f)
+
+            indexed_backend = str(mapping.get("embedding_backend", "clip")).strip().lower() or "clip"
+            indexed_model_id = str(mapping.get("model_id", "")).strip()
+            if indexed_backend != self.embedding_backend:
+                raise RuntimeError(
+                    "El índice fue construido con otro motor de embeddings "
+                    f"({indexed_backend}) y la app está configurada con {self.embedding_backend}. "
+                    "Reconstruye el índice antes de buscar."
+                )
+            if indexed_model_id and indexed_model_id != self.model_id:
+                raise RuntimeError(
+                    "El índice fue construido con otro modelo "
+                    f"({indexed_model_id}) y la app está configurada con {self.model_id}. "
+                    "Reconstruye el índice antes de buscar."
+                )
 
             self.image_embeddings = np.load(self.paths.image_embeddings)
             self.sku_prototypes = np.load(self.paths.sku_prototypes)
@@ -444,30 +597,14 @@ class SkuSearchIndex:
         ordered = local_indices[np.argsort(-scores[local_indices])]
         return [int(i) for i in ordered.tolist()]
 
-    @staticmethod
-    def _make_query_views(image: Image.Image, enable_multicrop: bool) -> List[Image.Image]:
+    @classmethod
+    def _make_query_views(cls, image: Image.Image, enable_multicrop: bool) -> List[Image.Image]:
         base = image.convert("RGB")
         if not enable_multicrop:
             return [base]
 
-        views = [base]
-        width, height = base.size
-
-        # Recorte central suave
-        margin_w = int(width * 0.1)
-        margin_h = int(height * 0.1)
-        if width - (2 * margin_w) > 32 and height - (2 * margin_h) > 32:
-            center_crop = base.crop((margin_w, margin_h, width - margin_w, height - margin_h))
-            views.append(center_crop)
-
-        # Recorte central más cerrado para captar branding/color
-        zoom_margin_w = int(width * 0.2)
-        zoom_margin_h = int(height * 0.2)
-        if width - (2 * zoom_margin_w) > 32 and height - (2 * zoom_margin_h) > 32:
-            zoom_crop = base.crop((zoom_margin_w, zoom_margin_h, width - zoom_margin_w, height - zoom_margin_h))
-            views.append(zoom_crop)
-
-        return views
+        views = cls._make_image_views(base)
+        return [view for _, view in views[:3]]
 
     def _path_to_public_url(self, filepath: str) -> str:
         full = Path(filepath).resolve()
@@ -545,11 +682,17 @@ class SkuSearchIndex:
                 per_image_scores = np.max(sims, axis=0)
                 sku_score = float(np.max(per_image_scores))  # score por SKU = max(sim)
 
-                top_local = np.argsort(-per_image_scores)[:max_examples]
-                example_urls = [
-                    self._mapping_row_to_public_url(self.mapping_images[image_ids[idx]])
-                    for idx in top_local.tolist()
-                ]
+                top_local = np.argsort(-per_image_scores)[: max(max_examples * 5, max_examples)]
+                example_urls: List[str] = []
+                seen_examples: set[str] = set()
+                for idx in top_local.tolist():
+                    url = self._mapping_row_to_public_url(self.mapping_images[image_ids[idx]])
+                    if url in seen_examples:
+                        continue
+                    seen_examples.add(url)
+                    example_urls.append(url)
+                    if len(example_urls) >= max_examples:
+                        break
 
                 color_score = self._color_score_for_sku(query_hist, image_ids)
                 reranked.append(
@@ -602,9 +745,16 @@ class SkuSearchIndex:
             self.load()
             image_ids = self.sku_to_image_ids.get(sku, [])[: max(limit, 0)]
             urls: List[str] = []
+            seen_urls: set[str] = set()
             for image_id in image_ids:
                 if image_id < len(self.mapping_images):
-                    urls.append(self._mapping_row_to_public_url(self.mapping_images[image_id]))
+                    url = self._mapping_row_to_public_url(self.mapping_images[image_id])
+                    if url in seen_urls:
+                        continue
+                    seen_urls.add(url)
+                    urls.append(url)
+                    if len(urls) >= limit:
+                        break
             return urls
 
     def list_sku_images(self, sku: str, storage_only: bool = True) -> List[Dict[str, Any]]:
@@ -615,6 +765,7 @@ class SkuSearchIndex:
                 return []
 
             images: List[Dict[str, Any]] = []
+            seen_paths: set[str] = set()
             for row in self.mapping_images:
                 if row.get("sku") != clean_sku:
                     continue
@@ -626,6 +777,9 @@ class SkuSearchIndex:
                 full_path = self._resolve_mapping_filepath(row)
                 if storage_only and not self._is_within_root(full_path, self.storage_root):
                     continue
+                if str(full_path) in seen_paths:
+                    continue
+                seen_paths.add(str(full_path))
 
                 images.append(
                     {
@@ -707,15 +861,24 @@ class SkuSearchIndex:
             if not valid_images:
                 raise RuntimeError("No se pudo procesar ninguna imagen válida")
 
-            new_embeddings = self.embedder.embed_images(valid_images)
-            new_color_hists = np.vstack([self._compute_color_hist(img) for img in valid_images]).astype(np.float32)
+            view_images: List[Image.Image] = []
+            view_paths: List[Path] = []
+            view_ids: List[str] = []
+            for image, path in zip(valid_images, valid_paths):
+                for view_id, view in self._make_image_views(image):
+                    view_images.append(view)
+                    view_paths.append(path)
+                    view_ids.append(view_id)
+
+            new_embeddings = self.embedder.embed_images(view_images)
+            new_color_hists = np.vstack([self._compute_color_hist(img) for img in view_images]).astype(np.float32)
 
             start_id = len(self.mapping_images)
             new_ids: List[int] = []
-            for offset, path in enumerate(valid_paths):
+            for offset, path in enumerate(view_paths):
                 image_id = start_id + offset
                 new_ids.append(image_id)
-                self.mapping_images.append(self._make_mapping_row(image_id, clean_sku, path))
+                self.mapping_images.append(self._make_mapping_row(image_id, clean_sku, path, view_id=view_ids[offset]))
 
             if self.image_embeddings.size == 0:
                 self.image_embeddings = new_embeddings.astype(np.float32)
@@ -737,8 +900,8 @@ class SkuSearchIndex:
 
             return {
                 "sku": clean_sku,
-                "added_images": len(new_ids),
-                "total_images": len(self.mapping_images),
+                "added_images": len(valid_paths),
+                "total_images": self._source_image_count(),
                 "total_skus": len(self.sku_order),
                 "index_engine": self.index_engine,
             }
@@ -829,7 +992,16 @@ class SkuSearchIndex:
             self._loaded = True
 
             removed_files = 0
+            unique_remove_paths = []
+            seen_remove_paths: set[str] = set()
             for full_path in remove_paths:
+                full_path_key = str(full_path)
+                if full_path_key in seen_remove_paths:
+                    continue
+                seen_remove_paths.add(full_path_key)
+                unique_remove_paths.append(full_path)
+
+            for full_path in unique_remove_paths:
                 try:
                     if full_path.exists():
                         full_path.unlink()
@@ -846,10 +1018,10 @@ class SkuSearchIndex:
 
             return {
                 "sku": clean_sku,
-                "removed_images": len(remove_indices),
+                "removed_images": len(unique_remove_paths),
                 "removed_files": removed_files,
-                "remaining_sku_images": len(self.sku_to_image_ids.get(clean_sku, [])),
-                "total_images": len(self.mapping_images),
+                "remaining_sku_images": self._source_image_count_for_sku(clean_sku),
+                "total_images": self._source_image_count(),
                 "total_skus": len(self.sku_order),
                 "index_engine": self.index_engine,
             }

@@ -96,6 +96,26 @@ export async function postFeedback({ backendUrl, queryId, chosenSku, timestamp =
   return response.json()
 }
 
+export async function addAdminItems({ backendUrl, sku, adminKey, files }) {
+  const body = new FormData()
+  body.append('sku', String(sku || '').trim())
+  body.append('admin_key', String(adminKey || '').trim())
+  ;(Array.isArray(files) ? files : []).forEach((file) => {
+    body.append('files[]', file, file.name || 'correction.jpg')
+  })
+
+  const response = await fetch(`${backendUrl}/admin/items`, {
+    method: 'POST',
+    body,
+  })
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response, 'Error guardando SKU'))
+  }
+
+  return response.json()
+}
+
 export async function checkSkuExists({ backendUrl, sku, adminKey, signal }) {
   const params = new URLSearchParams({
     sku: String(sku || '').trim(),

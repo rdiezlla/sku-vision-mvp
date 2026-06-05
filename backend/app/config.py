@@ -40,6 +40,7 @@ class Settings:
     data_dir: Path
     storage_root: Path
     feedback_file: Path
+    embedding_backend: str
     clip_model_id: str
     batch_size: int
     default_k: int
@@ -76,7 +77,11 @@ def get_settings() -> Settings:
         data_dir=data_dir,
         storage_root=storage_root,
         feedback_file=feedback_file,
-        clip_model_id=os.getenv("CLIP_MODEL_ID", "openai/clip-vit-base-patch32"),
+        embedding_backend=os.getenv("EMBEDDING_BACKEND", "clip"),
+        clip_model_id=os.getenv(
+            "EMBEDDING_MODEL_ID",
+            os.getenv("CLIP_MODEL_ID", "openai/clip-vit-base-patch32"),
+        ),
         batch_size=int(os.getenv("BATCH_SIZE", "32")),
         default_k=int(os.getenv("DEFAULT_K", "5")),
         retrieval_top_n=int(os.getenv("RETRIEVAL_TOP_N", "50")),

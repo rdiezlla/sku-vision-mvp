@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import LivePanel from './components/LivePanel'
 import {
+  addAdminItems,
   checkSkuExists,
   deleteAdminSkuImages,
   fetchAdminSkuImages,
-  parseApiError,
   postFeedback,
   resolveBackendUrl,
   searchImage,
@@ -36,6 +36,7 @@ function App() {
 
   const [queryId, setQueryId] = useState('')
   const [results, setResults] = useState([])
+  const [correctionSku, setCorrectionSku] = useState('')
 
   const [adminSku, setAdminSku] = useState('')
   const [adminKey, setAdminKey] = useState(DEFAULT_ADMIN_KEY)
@@ -257,6 +258,47 @@ function App() {
     }
   }
 
+  async function submitCorrection() {
+    const sku = correctionSku.trim()
+    if (!sku) {
+      setError('Indica el SKU correcto.')
+      return
+    }
+    if (!selectedBlob) {
+      setError('No hay imagen de consulta para guardar.')
+      return
+    }
+    if (!adminKey.trim()) {
+      setError('Falta la clave admin.')
+      return
+    }
+
+    clearStatus()
+    setIsLoading(true)
+
+    try {
+      const file =
+        selectedBlob instanceof File
+          ? selectedBlob
+          : new File([selectedBlob], selectedName || 'correction.jpg', { type: selectedBlob.type || 'image/jpeg' })
+
+      const payload = await addAdminItems({
+        backendUrl: BACKEND_URL,
+        sku,
+        adminKey,
+        files: [file],
+      })
+
+      setCorrectionSku('')
+      setStatus(`Corrección guardada: SKU ${payload.sku} actualizado con esta imagen.`)
+      await runSearch(file, file.name || selectedName || 'correction.jpg')
+    } catch (err) {
+      setError(err?.message || 'No se pudo guardar la corrección')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   async function saveAdminItems() {
     if (!adminSku || adminFiles.length === 0) {
       setError('Completa SKU y sube al menos una imagen.')
@@ -281,21 +323,13 @@ function App() {
     setIsLoading(true)
 
     try {
-      const body = new FormData()
-      body.append('sku', adminSku.trim())
-      body.append('admin_key', adminKey)
-      adminFiles.forEach((file) => body.append('files[]', file, file.name))
-
-      const response = await fetch(`${BACKEND_URL}/admin/items`, {
-        method: 'POST',
-        body,
+      const payload = await addAdminItems({
+        backendUrl: BACKEND_URL,
+        sku: adminSku,
+        adminKey,
+        files: adminFiles,
       })
 
-      if (!response.ok) {
-        throw new Error(await parseApiError(response, 'Error guardando SKU'))
-      }
-
-      const payload = await response.json()
       setStatus(`SKU ${payload.sku} guardado con ${payload.added_images} imágenes.`)
       setAdminSku('')
       setAdminFiles([])
@@ -484,6 +518,32 @@ function App() {
         </div>
 
         {results.length === 0 && <p className="empty">Sin resultados.</p>}
+
+        {selectedBlob ? (
+          <div className="correction-box">
+            <label>
+              SKU correcto
+              <input
+                type="text"
+                value={correctionSku}
+                onChange={(event) => setCorrectionSku(event.target.value)}
+                placeholder="Ej: 015003"
+              />
+            </label>
+            <label>
+              Clave admin
+              <input
+                type="password"
+                value={adminKey}
+                onChange={(event) => setAdminKey(event.target.value)}
+                placeholder="Clave para guardar correcciones"
+              />
+            </label>
+            <button type="button" onClick={submitCorrection} disabled={isLoading || !correctionSku.trim()}>
+              Guardar corrección
+            </button>
+          </div>
+        ) : null}
 
         {results.map((result, index) => (
           <article className="result-card" key={`${result.sku}-${index}`}>

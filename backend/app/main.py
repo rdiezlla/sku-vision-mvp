@@ -42,6 +42,7 @@ search_index = SkuSearchIndex(
     storage_root=settings.storage_root,
     model_id=settings.clip_model_id,
     batch_size=settings.batch_size,
+    embedding_backend=settings.embedding_backend,
     prototype_method=settings.prototype_method,
 )
 

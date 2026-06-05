@@ -12,7 +12,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data_dir", required=True, help="Ruta del dataset Fotos/<SKU>/*")
     parser.add_argument("--out_dir", default="backend/data", help="Directorio de salida para índices")
     parser.add_argument("--storage_dir", default="backend/storage", help="Directorio de storage incremental")
-    parser.add_argument("--model_id", default="openai/clip-vit-base-patch32", help="Modelo CLIP")
+    parser.add_argument("--embedding_backend", default="clip", choices=["clip", "dino", "dinov2"], help="Motor de embeddings")
+    parser.add_argument("--model_id", default="openai/clip-vit-base-patch32", help="Modelo de embeddings")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size para embeddings")
     parser.add_argument(
         "--prototype_method",
@@ -55,6 +56,7 @@ def main() -> None:
         storage_root=storage_dir,
         model_id=args.model_id,
         batch_size=args.batch_size,
+        embedding_backend=args.embedding_backend,
         prototype_method=args.prototype_method,
         include_storage_on_build=not args.skip_storage,
     )
@@ -67,6 +69,7 @@ def main() -> None:
     print(f"- Imágenes corruptas saltadas: {stats['skipped_images']}")
     print(f"- Tiempo: {stats['seconds']} s")
     print(f"- Device: {stats['device']}")
+    print(f"- Embeddings: {stats['embedding_backend']} / {stats['model_id']}")
     print(f"- Engine: {stats['index_engine']}")
     print(f"- Output: {stats['out_dir']}")
 
